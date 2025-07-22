@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% comment %} <div class="container d-flex justify-content-center"> {% endcomment %}
+<div class="container mt-4">
+  <div class="row" style="max-width: 90%; text-align: left;">
+    <div class="col-12 col-md-8 mb-3">
+      <p><h4><b>Problem (blank area in pink):</b></h4> 
+      {{ data.left }}<span id="blankArea" class='blank'>______</span> {{ data.right }}</p>
+
+      <p><h4><b>Response:</b></h4> {{ data.response }}</p>
+
+      <p><h4><b>Answer:</b></h4> {{ data.answer }}</p>
+    </div>
+    <div class="col-12 col-md-4">
+      <form id="annotationForm" method="post" action="{% url 'submit-annotation' %}">
+        {% csrf_token %}
+        <div class="mb-3">
+          <h3> Answer the following: </h3>
+          <p>
+          If the <b>response</b> field contain a guess for the blank area (highlighted pink), please provide it below:
+          <br>
+          <span class="text-danger">Note: The response may contain text that already exists in the problem. If you see this then leave the guess field blank</span>
+          <input type="text" id="guessField" name="guessField" placeholder="Blank if response contains no guess" class="form-control">
+          </p>
+        </div>
+
+        <div id="conditionalFields" class="d-none">
+          <p> 
+            Does the guess that you provided contain {{ data.n_sents }} sentence(s)?
+            <div id="guessSentenceCount" class="radio-buttons">
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="guessSentenceCount" id="option1" value="1">
+                <label class="form-check-label" for="option1">
+                  Yes
+                </label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="guessSentenceCount" id="option2" value="0">
+                <label class="form-check-label" for="option2">
+                  No
+                </label>
+              </div>
+            </div>
+          </p>
+
+          <p> 
+          Rate the following statements 
+          <br>
+          (1 - low, 5 - high):
+          </p>
+          <p> <h5>Coherence:</h5> The guess is logically coherent with the context.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_coherence" %}
+          </p>
+
+          <p> <h5>Factuality:</h5> The guess introduces no factual inconsistencies to the narrative.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_factuality" %}
+          </p>
+
+          <p> <h5>Grammar:</h5> The guess does not contain or introduce any grammatical errors.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_grammar" %}
+          </p>
+
+          <p> <h5>Hallucination:</h5> The guess does not contain any irrelevant or nonsense information.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_hallucination" %}
+          </p>
+
+          <p> <h5>Overall:</h5> The guess is a good overall fit for the blank.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_overall" %}
+          </p>
+
+          <p> <h5>Narrative Consistency:</h5> The overall narrative remains the same between the answer and the guess.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_narrative_consistency" %}
+          </p>
+
+          <p> <h5>No New Information:</h5> The guess does not introduce any new information.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_no_new_information" %}
+          </p>
+
+          <p> <h5>No Information Loss:</h5> The guess does not take away any important information.
+          {% include "annotation/radio_buttons.html" with radio_id="ann_no_information_loss" %}
+          </p>
+        </div>
+
+        <div class="mb-3">
+          <h5>Additional Comments:</h5>
+          <textarea class="form-control" name="additionalComments" rows="3" placeholder="Optional comments about the response"></textarea>
+        </div>
+        <input type="hidden" name="data" value="{{ data_json|escape }}">
+
+        <button type="submit" class="btn btn-primary" id="submitButton" name="submit" value="next">Submit</button>
+      </form>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  data = {{ data_json|safe }};
+  const guessField = document.getElementById('guessField');
+  const conditionalFields = document.getElementById('conditionalFields');
+
+  guessField.addEventListener('input', function() {
+    if (guessField.value.trim() !== '') {
+      conditionalFields.classList.remove('d-none');
+    } else {
+      conditionalFields.classList.add('d-none');
+    }
+  });
+
+  const radioGroups = [
+    'guessSentenceCount',
+    'ann_coherence',
+    'ann_factuality',
+    'ann_grammar',
+    'ann_hallucination',
+    'ann_overall',
+    'ann_narrative_consistency',
+    'ann_no_new_information',
+    'ann_no_information_loss'
+  ];
+
+  function isGroupSelected(groupId) {
+    const radios = document.querySelectorAll(`#${groupId} input[type="radio"]`);
+    return Array.from(radios).some(r => r.checked);
+  }
+
+  function updateFormState() {
+    const guess = guessField.value.trim();
+    const submitButton = document.getElementById('submitButton');
+    const blankArea = document.getElementById('blankArea');
+    
+    if (guess === '') {
+      // No guess = allow submit, hide extra fields
+      conditionalFields.classList.add('d-none');
+      submitButton.disabled = false;
+      blankArea.textContent = '______';
+    } else {
+      // Guess exists = show extra fields and require all radios selected
+      conditionalFields.classList.remove('d-none');
+      const allSelected = radioGroups.every(id => isGroupSelected(id));
+      blankArea.textContent = guess;
+      submitButton.disabled = !allSelected;
+    }
+  }
+
+  // Event listeners
+  guessField.addEventListener('input', updateFormState);
+  radioGroups.forEach(id => {
+    const radios = document.querySelectorAll(`#${id} input[type="radio"]`);
+    radios.forEach(radio => radio.addEventListener('change', updateFormState));
+  });
+
+  form = document.getElementById('annotationForm');
+  form.addEventListener('submit', function (event) {
+    const guess = guessField.value.trim();
+
+    if (guess === '') {
+      const confirmed = confirm("Are you sure you want to submit without a guess?");
+      if (!confirmed) {
+        event.preventDefault(); // Cancel submission
+      }
+    }
+  });
+
+  // Initial state check
+  updateFormState();
+
+</script>
+{% endblock %}
